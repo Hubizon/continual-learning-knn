@@ -19,8 +19,9 @@ class EuclideanMetric(Metric):
     def preprocess(self, D):
         pass
 
-    def calculate(self, a, b):
-        return torch.sqrt(torch.sum((a.float() - b) ** 2, dim=-1))  # todo zmienić
+    def calculate(self, a, b, squared=False):
+        res = torch.sum((a.float() - b) ** 2, dim=-1)
+        return res if squared else torch.sqrt(res)
 
 
 class CosineMetric(Metric):
@@ -31,7 +32,8 @@ class CosineMetric(Metric):
         dot_product = torch.sum(a * b, dim=-1)
         norms_a = torch.norm(a.float(), p=2, dim=-1)
         norms_b = torch.norm(b.float(), p=2, dim=-1)
-        return 1 - dot_product / (norms_a * norms_b)
+        res = 1 - dot_product / (norms_a * norms_b)
+        return torch.clamp(res, 1e-30, 2)
 
 
 class MahalanobisMetric(Metric):
@@ -55,23 +57,28 @@ class MahalanobisMetric(Metric):
             task_inv_cov_matrix = self._preprocess(D)
             self.inv_cov_matrix = torch.concat((self.inv_cov_matrix, task_inv_cov_matrix))
 
+    def _covariance_shrinkage(self, D, cov_matrix):
+        diag = cov_matrix.diagonal(dim1=1, dim2=2)
+        V1 = diag.mean(1).reshape(-1, 1, 1).to(D.device)
+        V2 = ((cov_matrix.sum((1, 2)) - diag.sum(1)) / (self.n_features * (self.n_features - 1))).reshape(-1, 1, 1)
+        Id = torch.eye(self.n_features).repeat(D.size(0), 1, 1).to(D.device)
+        return cov_matrix + self.gamma_1 * V1 * Id + self.gamma_2 * V2 * (1 - Id)
+
+    def _normalization(self, cov_matrix):
+        stds = torch.sqrt(self.cov_matrix.diagonal(dim1=1, dim2=2))
+        return cov_matrix / torch.einsum('bi,bj->bij', stds, stds)
+
     def _preprocess(self, D):
         # Compute the Covariance Matrix  [n_classes, n_features, n_features]
         cov_matrix = D - torch.mean(D, dim=1, keepdim=True)
         cov_matrix = torch.matmul(cov_matrix.transpose(1, 2), cov_matrix) / self.n_features
 
-        # Covariance shrinkage
         if self.shrinkage:
-            diag = cov_matrix.diagonal(dim1=1, dim2=2)
-            V1 = diag.mean(1).reshape(-1, 1, 1).to(D.device)
-            V2 = ((cov_matrix.sum((1, 2)) - diag.sum(1)) / (self.n_features * (self.n_features - 1))).reshape(-1, 1, 1)
-            Id = torch.eye(self.n_features).repeat(D.size(0), 1, 1).to(D.device)
-            cov_matrix = cov_matrix + self.gamma_1 * V1 * Id + self.gamma_2 * V2 * (1 - Id)
+            cov_matrix = self._covariance_shrinkage(D, cov_matrix)
 
-        # Normalization
         if self.normalization:
-            stds = torch.sqrt(cov_matrix.diagonal(dim1=1, dim2=2))
-            cov_matrix = cov_matrix / torch.einsum('bi,bj->bij', stds, stds)
+            self.cov_matrix = cov_matrix
+            cov_matrix = self._normalization(cov_matrix)
 
         # Calculate the inverse of Covariance Matrix
         return torch.inverse(cov_matrix)

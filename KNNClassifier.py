@@ -28,7 +28,7 @@ class KNNClassifier:
 
         self.metric.preprocess(D)
         if self.kmeans is not None:
-            D = self.kmeans.fit(D)
+            D = self.kmeans.fit_predict(D)
 
         if not self.fitted:
             self.fitted = True
@@ -92,4 +92,4 @@ class KNNClassifier:
 
     @staticmethod
     def accuracy_score(y_true, pred):
-        return torch.sum(torch.eq(y_true, pred)).item() / len(y_true)
+        return torch.sum(torch.eq(y_true, pred)).item() / len(y_true) * 100
