@@ -2,9 +2,10 @@ import torch
 
 
 class KNNClassifier:
-    def __init__(self, n_neighbors, metric, tukey_lambda=1, kmeans=None, device='cpu'):
+    def __init__(self, n_neighbors, metric, is_normalization=False, tukey_lambda=1., kmeans=None, device='cpu'):
         self.n_neighbors = n_neighbors
         self.metric = metric
+        self.is_normalization = is_normalization
         self.tukey_lambda = tukey_lambda
         self.kmeans = kmeans
         self.device = device
@@ -12,6 +13,19 @@ class KNNClassifier:
         self.n_classes = None
         self.samples_per_class = None
         self.fitted = False
+
+    def _normalization(self, T, epsilon=1e-8):
+        if T.ndim == 3:
+            T_permuted = T.permute(0, 2, 1)
+            norm = torch.linalg.norm(T_permuted, dim=1, ord=2, keepdim=True)
+            representation = T_permuted / (norm + epsilon)
+            return representation.permute(0, 2, 1)
+        else:
+            T_permuted = T.T
+            norm = torch.linalg.norm(T_permuted, dim=0, ord=2, keepdim=True)
+            representation = T_permuted / (norm + epsilon)
+            return representation.T
+
 
     # Tukey’s Ladder of Powers Transformation
     def _tukey(self, T):
@@ -24,11 +38,38 @@ class KNNClassifier:
         # D (torch.Tensor): Training data tensor of shape [n_classes, samples_per_class, n_features].
         if D.ndim == 2:
             D = D.unsqueeze(0)
-        D = self._tukey(D.type(torch.float32).to(self.device))
+        D = D.type(torch.float32).to(self.device)
+
+        """
+        D = self._tukey(D)
+        if self.is_normalization:
+            D = self._normalization(D)
 
         self.metric.preprocess(D)
         if self.kmeans is not None:
             D = self.kmeans.fit_predict(D)
+
+        D = self._tukey(D)
+        if self.is_normalization:
+            D = self._normalization(D)
+        """
+
+        # sus
+        if self.is_normalization:
+            D = self._normalization(D)
+        D_kmeans = D
+
+        D = self._tukey(D)
+        self.metric.preprocess(D)
+
+        if self.kmeans is not None:
+            self.kmeans.metric_preprocess(D)
+            D = self.kmeans.fit_predict(D_kmeans)
+
+        D = self._tukey(D)  # 2 razy tukey? sus
+        if self.is_normalization:
+            D = self._normalization(D)
+        # sus
 
         if not self.fitted:
             self.fitted = True
@@ -42,9 +83,14 @@ class KNNClassifier:
 
         return self
 
-    def predict(self, X, batch_size_X=1, batch_size_D=64, batch_size=-1):
+    def predict(self, X, batch_size_X=1, batch_size_D=-1):
         # X (torch.Tensor): Test data tensor of shape [n_samples, n_features].
+        if self.is_normalization:
+            X = self._normalization(X)
         X = self._tukey(X)
+        if self.is_normalization:
+            X = self._normalization(X)
+
         if batch_size_X == -1:
             batch_size_X = X.size(0)
         if batch_size_D == -1:
@@ -56,7 +102,7 @@ class KNNClassifier:
         for batch_X in X[:, None, None, :].split(batch_size_X, dim=0):
             # Calculate the distances between the test sample and all training samples
             distances = torch.cat([self.metric.calculate(batch_D, batch_X) for batch_D in split_D],
-                                  dim=2).reshape(batch_X.size(0), -1)
+                                  dim=-1).reshape(batch_X.size(0), -1)
 
             # Get the distances and indices of the k closest training samples
             values, indices = torch.topk(distances, self.n_neighbors, sorted=False, largest=False)

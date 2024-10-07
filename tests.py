@@ -4,10 +4,13 @@ import unittest
 import sklearn
 import torch
 import torchvision
-from sklearn import datasets, neighbors
+from sklearn import datasets, neighbors, cluster
+import numpy as np
+import scipy
 
 import Metrics
 from KNNClassifier import KNNClassifier
+from KMeans import KMeans
 
 
 class TestMetrics(unittest.TestCase):
@@ -15,11 +18,11 @@ class TestMetrics(unittest.TestCase):
         """ Test the Euclidean distance calculation with 3 features. """
         a = torch.tensor([[[2, 3, 4], [3, 4, 0]],
                           [[0, -3, -6], [-2, 6, 4]]])
-        b = torch.tensor([2, 3, 4], dtype=torch.float32)
+        b = torch.tensor([[2, 3, 4]], dtype=torch.float32)
 
         metric = Metrics.EuclideanMetric()
 
-        dist_test = metric.calculate(a, b)
+        dist_test = metric.calculate(a, b).squeeze()
         dist_correct = torch.tensor([[0, torch.sqrt(torch.tensor(18))], [torch.sqrt(torch.tensor(140)), 5]])
 
         self.assertTrue(torch.allclose(dist_test, dist_correct, atol=1e-4))
@@ -163,6 +166,31 @@ class TestKNNClassifier(unittest.TestCase):
 
     def test_mnist_sklearn_mahalanobis(self):
         self.mnist_sklearn_helper(Metrics.MahalanobisMetric(True, True), 'mahalanobis')
+
+    def test_kmeans(self):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        # test = torchvision.datasets.MNIST('/files/', train=False, download=True)
+        # X = test.data.reshape(-1, 28 * 28).to(torch.float32)
+
+        X = torch.tensor(sklearn.datasets.make_blobs(n_samples=10000, n_features=2, centers=15, cluster_std=0.5)[0])
+
+        similarities = []
+        for _ in range(50):
+            centroids1 = KMeans(15).fit_predict(X.to(device).unsqueeze(0)).cpu().squeeze(0)
+            centroids2 = torch.tensor(sklearn.cluster.KMeans(15).fit(X).cluster_centers_)
+
+            distances = Metrics.EuclideanMetric().calculate(centroids1, centroids2)
+            similarity_matrix = 1 - (distances / distances.max())
+
+            row_indices, col_indices = scipy.optimize.linear_sum_assignment(similarity_matrix, maximize=True)
+            similarity = similarity_matrix[row_indices, col_indices].mean()
+
+            similarities.append(similarity.item())
+
+        mean_simlilarity = np.array(similarities).mean()
+        print("My KMeans similarity to sklearn's one:", mean_simlilarity)
+        self.assertTrue(mean_simlilarity > 0.9)
 
 
 if __name__ == '__main__':

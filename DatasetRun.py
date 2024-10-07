@@ -43,7 +43,7 @@ def train(clf, folder_name, n_tasks, only_last=False, verbose=False):
 
             clf.fit(D)
             if not only_last or task_number == n_tasks - 1:
-                pred = clf.predict(X_test, batch_size_X=1, batch_size_D=-1)
+                pred = clf.predict(X_test)
                 accuracy = clf.accuracy_score(y_test, pred)
 
             if verbose:
@@ -106,12 +106,12 @@ def plot_accuracy_trials(study_name, ylim=True):
 
 
 def plot_hyperparameter(param_name, param_vals, accuracies, deg=2, ylim=True):
-    plt.scatter(param_vals, accuracies, color='blue', s=5, alpha=0.6)
-
     if ylim:
         mask = accuracies.mean() - accuracies.std() <= accuracies
         param_vals = param_vals[mask]
         accuracies = accuracies[mask]
+
+    plt.scatter(param_vals, accuracies, color='blue', s=5, alpha=0.6)
 
     z = np.polyfit(param_vals, accuracies, deg)
     p = np.poly1d(z)

@@ -19,9 +19,10 @@ class EuclideanMetric(Metric):
     def preprocess(self, D):
         pass
 
-    def calculate(self, a, b, squared=False):
-        res = torch.sum((a.float() - b) ** 2, dim=-1)
-        return res if squared else torch.sqrt(res)
+    def calculate(self, a, b):
+        # res = torch.sum((a.float() - b) ** 2, dim=-1)
+        # return res # if squared else torch.sqrt(res)
+        return torch.cdist(b.float(), a.float())
 
 
 class CosineMetric(Metric):
@@ -92,10 +93,10 @@ class MahalanobisMetric(Metric):
         b (torch.Tensor): Second tensor of shape [n_samples_b, n_features].
 
         Returns:
-        torch.Tensor: Mahalanobis distance between a and b. Shape [n_samples_b, n_classes, n_examples].
+        torch.Tensor: Mahalanobis distance between a and b. Shape [n_samples_b, n_classes, n_samples_a].
         """
         a = a.reshape(1, self.n_classes, -1, self.n_features)
         b = b.reshape(-1, 1, 1, self.n_features)
 
-        diff = b - a  # [n_samples, n_classes, n_examples, n_features]
+        diff = b - a  # [n_samples_b, n_classes, n_samples_a, n_features]
         return torch.einsum('abcd,bed,abce->abc', diff, self.inv_cov_matrix, diff)
