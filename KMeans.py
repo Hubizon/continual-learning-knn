@@ -21,10 +21,8 @@ class KMeans:
 
     def metric_preprocess(self, D):
         """ Preprocess metric: currently only used for Mahalanobis Metric """
-        # There should always be only one class for KMeans metric, so each time we reset the metric
-        # TODO: look into that
-        self.metric.is_first_preprocess = True
-        self.metric.preprocess(D.reshape(1, -1, D.size(2)))
+        # We save the data for later (fit_predict method) and will preprocess the metric there
+        self.D_preprocess = D
 
     def kmeans_plusplus(self, D):
         """
@@ -50,29 +48,43 @@ class KMeans:
 
         return torch.stack(centroids, dim=1).squeeze(2)
 
-    def fit_predict(self, D, init='k-means++'):
+    def fit_predict(self, D, init='k-means++', seed=42):
         """
         Initialize centroids either using k-means++ or randomly
 
         Parameters:
          D (torch.Tensor): Dataset tensor of shape [n_classes, samples_per_class, n_features].
          init (str): Initialization method ('k-means++' or 'random') for selecting initial centroids.
+         seed (int): Random seed for initialization.
 
         Returns:
          torch.Tensor: Final centroids for each class of shape [n_classes, n_clusters, n_features].
         """
+        # Set seed if applicable
+        if seed != -1:
+            torch.manual_seed(seed)
+
         if init == 'k-means++':
             centroids = self.kmeans_plusplus(D)
         elif init == 'random':
             random_indices = torch.randperm(D.size(1))[:self.n_clusters]
             centroids = D[:, random_indices]
 
-        for d_class in range(D.size(0)):  # Iterate over each class
-            for i in range(self.max_iter):  # Perform iterations up to max_iter
+        # Iterate over each class to calculate the centroids
+        for d_class in range(D.size(0)):
+            # In the case of Mahalanobis Distance for KMeans:
+            # For each class, we reset the metric and calculate a new covariance matrix using only this class.
+            # This covariance matrix will be used to calculate the distances
+            # between the centroids and the data belonging to this class.
+            if isinstance(self.metric, Metrics.MahalanobisMetric):
+                self.metric.is_first_preprocess = True
+                self.metric.preprocess(self.D_preprocess[d_class:d_class + 1])
+
+            # Perform iterations up to max_iter (though it is usually less because of self.tol)
+            for i in range(self.max_iter):
                 # Calculate distances between points and centroids
                 distances = self.metric.calculate(D[d_class].unsqueeze(0), centroids[d_class].unsqueeze(1))
-                if distances.ndim == 3:
-                    distances = distances.squeeze(1)  # Adjust dimension if necessary
+                distances = distances.reshape(self.n_clusters, D.size(1))  # Adjust dimension if necessary
 
                 # Assign points to the nearest centroid (cluster)
                 cluster_labels = torch.argmin(distances, dim=0)

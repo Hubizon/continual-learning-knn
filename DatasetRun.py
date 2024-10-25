@@ -52,11 +52,11 @@ def train(clf, folder_name, n_tasks, only_last=False, verbose=False):
 
         with h5py.File(current_file, "r") as f:
             # Load training and testing data from the HDF5 file
-            X_train = torch.tensor(f["X_train"], dtype=torch.float32, device=device)
-            y_train = torch.tensor(f["y_train"], dtype=torch.float32, device=device)
+            X_train = torch.tensor(np.array(f["X_train"]), dtype=torch.float32, device=device)
+            y_train = torch.tensor(np.array(f["y_train"]), dtype=torch.float32, device=device)
 
-            X_test = torch.tensor(f["X_test"], dtype=torch.float32, device=device)
-            y_test = torch.tensor(f["y_test"], dtype=torch.float32, device=device)
+            X_test = torch.tensor(np.array(f["X_test"]), dtype=torch.float32, device=device)
+            y_test = torch.tensor(np.array(f["y_test"]), dtype=torch.float32, device=device)
 
             # Group training samples by class
             D = torch.concat([X_train[y_train == y_class].unsqueeze(0) for y_class in y_train.unique()])
@@ -228,8 +228,9 @@ def plot_hyperparameters(study_name, columns=3, deg=2, ylim=True):
     plt.figure(figsize=(columns * width, rows * height))
 
     for i, param in enumerate(params):
-        plt.subplot(rows, columns, i + 1)
-        plot_hyperparameter(param[7:], df[param].values, accuracies, deg, ylim)
+        if np.isreal(df[param].values[0]):
+            plt.subplot(rows, columns, i + 1)
+            plot_hyperparameter(param[7:], df[param].values, accuracies, deg, ylim)
 
     plt.show()
 

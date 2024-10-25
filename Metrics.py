@@ -37,7 +37,7 @@ class CosineMetric(Metric):
 class MahalanobisMetric(Metric):
     """ Computes the Mahalanobis distance between tensors. """
 
-    def __init__(self, shrinkage=0, gamma_1=1, gamma_2=1, normalization=False):
+    def __init__(self, shrinkage=0, gamma_1=1, gamma_2=1, normalization=True):
         """
         Initialize the Mahalanobis metric.
 
@@ -81,21 +81,6 @@ class MahalanobisMetric(Metric):
 
     def cov_matrix_shrinkage(self, D, cov_matrix):
         """ Apply shrinkage to the covariance matrix based on gamma_1 and gamma_2. """
-        # TODO: delete it
-        """ 
-        if True:
-            covs = []
-            for i in range(D.size(0)):
-                temp_cov = cov_matrix[i]
-                diag_mean = torch.mean(torch.diagonal(temp_cov))
-                off_diag = temp_cov.clone().to(D.device)
-                off_diag.fill_diagonal_(0.0)
-                mask = off_diag != 0.0
-                off_diag_mean = (off_diag * mask).sum() / mask.sum()
-                iden = torch.eye(temp_cov.shape[0]).to(D.device)
-                cov_ = temp_cov + (self.gamma_1 * diag_mean * iden) + (self.gamma_2 * off_diag_mean * (1 - iden))
-                covs.append(cov_[None, :, :])
-            return torch.cat(covs) """
         diag = cov_matrix.diagonal(dim1=1, dim2=2)
 
         # V1: Mean of the diagonal elements (variance) for each class

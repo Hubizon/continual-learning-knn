@@ -2,7 +2,7 @@ import torch
 
 
 class KNNClassifier:
-    def __init__(self, n_neighbors, metric, is_normalization=False, tukey_lambda=1., kmeans=None, device='cpu'):
+    def __init__(self, n_neighbors, metric, is_normalization=True, tukey_lambda=1., kmeans=None, device='cpu'):
         """
         Initializes the KNNClassifier.
 
