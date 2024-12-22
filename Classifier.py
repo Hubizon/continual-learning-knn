@@ -1,11 +1,12 @@
 import abc
 
+import pandas as pd
 import torch
+from sklearn.metrics import precision_recall_fscore_support as score
 
 
 class Classifier(abc.ABC):
-    def __init__(self, metric, is_normalization=False, tukey_lambda=1., kmeans=None, device='cpu',
-                 batch_size_X=1, batch_size_D=-1):
+    def __init__(self, metric, is_normalization=False, tukey_lambda=1., kmeans=None, device='cpu', batch_size=8):
         """
         Initializes the Classifier.
 
@@ -15,16 +16,14 @@ class Classifier(abc.ABC):
          - tukey_lambda (float): Lambda value for Tukey’s Ladder of Powers transformation.
          - kmeans (KMeans): Optional KMeans object for clustering, if used.
          - device (str): Device on which computations are performed ('cpu' or 'cuda').
-         - batch_size_X (int): Batch size for splitting test data. Used in prediction.
-         - batch_size_D (int): Batch size for splitting training data (-1 means no splitting). Used in prediction.
+         - batch_size (int): Batch size for splitting test data. Used in prediction.
         """
         self.metric = metric
         self.is_normalization = is_normalization
         self.tukey_lambda = tukey_lambda
         self.kmeans = kmeans
         self.device = device
-        self.batch_size_X = batch_size_X
-        self.batch_size_D = batch_size_D
+        self.batch_size = batch_size
         self.is_first_fit = True
 
     def apply_tukey(self, T):
@@ -34,7 +33,7 @@ class Classifier(abc.ABC):
         else:
             return torch.log(T)
 
-    def fit(self, D, train=True):
+    def fit(self, D, **kwargs):
         """
         Fits the model to the training data.
         It can be called multiple times (is_first_fit=True only on the first call).
@@ -42,10 +41,8 @@ class Classifier(abc.ABC):
 
         Parameters:
          - D (torch.Tensor): Training data tensor of shape [n_classes, samples_per_class, n_features].
-                           In subsequent calls, the samples_per_class and n_features dimensions
-                           must match the initial call.
-         - train (bool): If True, trains the classifier; if False, only prepares data without training.
-                         Only viable in LogRegClassifier
+                             In subsequent calls, the samples_per_class and n_features dimensions
+                             must match the initial call.
         """
         if D.ndim == 2:
             D = D.unsqueeze(0)  # Ensure data has the correct shape.
@@ -54,8 +51,10 @@ class Classifier(abc.ABC):
         # Process the data:
         # self.D stores only the current task's data, with Tukey transformation applied.
         #  It will be used for preprocessing the metric and possibly in children classes
+        #  shape: [n_classes (only in this task), samples_per_class, n_features]
         # self.D_centroids stores the centroids across all tasks, with Tukey transformation
         #  and optional normalization applied. It will be used during prediction.
+        #  shape: [n_classes (across all tasks), n_centroids, n_features]
 
         D_centroids = D.clone()  # Clone the data, so that we can perform clustering without Tukey applied
 
@@ -92,7 +91,7 @@ class Classifier(abc.ABC):
         Abstract method for predicting class labels based on distances to training samples.
 
         Parameters:
-         - distances (Tensor): Distances of shape [batch_size_X, n_classes, batch_size_D].
+         - distances (Tensor): Distances of shape [batch_size, n_classes, n_centroids].
 
         Returns:
          - Tensor: Predicted class labels.
@@ -114,8 +113,7 @@ class Classifier(abc.ABC):
         if self.is_normalization:
             X = self.data_normalization(X)
 
-        return self.metric.calculate_batch(self.model_predict, self.D_centroids, X,
-                                           self.batch_size_D, self.batch_size_X)
+        return self.metric.calculate_batch(self.model_predict, self.D_centroids, X, self.batch_size)
 
     @staticmethod
     def data_normalization(T, epsilon=1e-8):
@@ -156,6 +154,32 @@ class Classifier(abc.ABC):
         return torch.stack([torch.stack(D[i]) for i in range(n_classes)]).type(torch.float32).to(X.device)
 
     @staticmethod
-    def accuracy_score(y_true, pred):
+    def accuracy_score(y_true, pred, verbose=False):
         """ Calculates the accuracy score. """
+
+        if verbose:
+            task_y_true = y_true // 10
+            task_pred = pred // 10
+            precision, recall, fscore, support = score(task_y_true.detach().cpu().numpy(),
+                                                       task_pred.detach().cpu().numpy())
+
+            tasks = sorted(set(task_y_true.detach().cpu().numpy()))
+            # Create DataFrame for formatted output
+            data = {
+                "Task": tasks,
+                "Precision": [f"{p * 100:.0f}%" for p in precision],
+                "Recall": [f"{r * 100:.0f}%" for r in recall],
+                "FScore": [f"{f:.2f}" for f in fscore],
+                "% of all Answers": [f"{((task_pred == task).sum() + 1e-16) / len(task_pred) * 100:.2f}%"
+                                     for task in tasks],
+            }
+
+            if verbose > 1:
+                for i in range(10):
+                    data.update({f"Class {i}": [f"{((pred == (10 * task + i)).sum() + 1e-16) / len(pred) * 100:.2f}%"
+                                                for task in tasks]})
+
+            df = pd.DataFrame(data)
+            print(df.to_markdown(index=False))
+
         return torch.sum(torch.eq(y_true, pred)).item() / len(y_true) * 100
